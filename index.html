@@ -251,6 +251,7 @@ footer { color: var(--muted); font-size: 0.78rem; }
 (function () {
   var EXT = [
     { r: 0.272, name: '단기 확장', note: '첫 반등 저항' },
+    { r: 0.5,   name: '단기 확장', note: '중간값' },
     { r: 0.618, name: '단기 확장', note: '황금비 반등' },
     { r: 1.0,   name: '회복',       note: 'C에서 A→B 만큼 상승 (AB = CD)', key: true },
     { r: 1.272, name: '1차 목표',   note: '', key: true },
@@ -455,7 +456,7 @@ footer { color: var(--muted); font-size: 0.78rem; }
     });
 
     // 파동 경로와 예상 경로 (1.618 목표까지 점선)
-    var t2 = d.ext[4].price;
+    var t2 = d.ext.filter(function (l) { return l.r === 1.618; })[0].price;
     out.push('<path d="M' + xA + ' ' + y(d.A) + ' L' + xB + ' ' + y(d.B) + ' L' + xC + ' ' + y(d.C) + '" stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linejoin="round"/>');
     out.push('<path d="M' + xC + ' ' + y(d.C) + ' L' + xD + ' ' + y(t2) + '" stroke="var(--up)" stroke-width="1.6" fill="none" stroke-dasharray="6 5"/>');
     [['A', xA, d.A, 16], ['B', xB, d.B, -10], ['C', xC, d.C, 16]].forEach(function (p) {
