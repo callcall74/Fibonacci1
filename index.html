@@ -240,7 +240,7 @@ footer { color: var(--muted); font-size: 0.78rem; }
       <span><i style="background:var(--ink)"></i>A → B → C 실제 파동</span>
       <span><i style="background:var(--up)"></i>확장 목표 (오른쪽)</span>
       <span><i style="background:var(--down)"></i>되돌림 지지 (왼쪽)</span>
-      <span><i style="background:var(--now)"></i>현재가</span>
+      <span><i style="background:var(--now)"></i>현재가 (C 아래면 하락 점선 표시)</span>
     </div>
   </section>
 
@@ -456,20 +456,40 @@ footer { color: var(--muted); font-size: 0.78rem; }
       out.push('<text x="' + (x1 + 8) + '" y="' + (it.ly + 10) + '" fill="var(--muted)">' + it.l.r + ' ' + esc(it.l.name) + '</text>');
     });
 
-    // 파동 경로와 예상 경로 (1.618 목표까지 점선)
-    var t2 = d.ext.filter(function (l) { return l.r === 1.618; })[0].price;
+    // 실제 파동 A → B → C
     out.push('<path d="M' + xA + ' ' + y(d.A) + ' L' + xB + ' ' + y(d.B) + ' L' + xC + ' ' + y(d.C) + '" stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linejoin="round"/>');
-    out.push('<path d="M' + xC + ' ' + y(d.C) + ' L' + xD + ' ' + y(t2) + '" stroke="var(--up)" stroke-width="1.6" fill="none" stroke-dasharray="6 5"/>');
-    [['A', xA, d.A, 16], ['B', xB, d.B, -10], ['C', xC, d.C, 16]].forEach(function (p) {
+
+    // 현재가가 C 아래면 하락 시나리오: C → 현재가 → 아래 하락 목표들로 점선
+    var falling = d.P != null && d.P < d.C;
+    var xP = 380, yp = d.P != null ? y(d.P) : 0;
+    if (falling) {
+      var below = d.ret.filter(function (l) { return l.group === 'cDown' && l.price < d.P; });
+      if (!below.length) below = d.ret.filter(function (l) { return l.price < d.P; }).sort(function (a, b) { return b.price - a.price; }).slice(0, 3);
+      out.push('<path d="M' + xC + ' ' + y(d.C) + ' L' + xP + ' ' + yp + '" stroke="var(--now)" stroke-width="2.4" fill="none"/>');
+      below.forEach(function (l) {
+        out.push('<path d="M' + xP + ' ' + yp + ' L' + xD + ' ' + y(l.price) + '" stroke="var(--down)" stroke-width="' + (l.key ? 1.8 : 1.1) + '" fill="none" stroke-dasharray="6 5"/>');
+        out.push('<circle cx="' + xD + '" cy="' + y(l.price) + '" r="3.5" fill="var(--down)"/>');
+        out.push('<text x="' + (xD + 8) + '" y="' + (y(l.price) + 4) + '" fill="var(--down)" font-weight="600">' + fmt(l.price) + '</text>');
+      });
+      out.push('<text x="' + x0 + '" y="14" fill="var(--down)" font-weight="600">C 이탈 · 하락 시나리오 (점선: 하락 목표)</text>');
+    } else {
+      var t2 = d.ext.filter(function (l) { return l.r === 1.618; })[0].price;
+      out.push('<path d="M' + xC + ' ' + y(d.C) + ' L' + xD + ' ' + y(t2) + '" stroke="var(--up)" stroke-width="1.6" fill="none" stroke-dasharray="6 5"/>');
+      out.push('<text x="' + x0 + '" y="14" fill="var(--up)" font-weight="600">상승 시나리오 (점선: 2차 목표 1.618)</text>');
+    }
+
+    [['A', xA, d.A, 16], ['B', xB, d.B, -10], ['C', xC, d.C, falling ? -10 : 16]].forEach(function (p) {
       out.push('<circle cx="' + p[1] + '" cy="' + y(p[2]) + '" r="4.5" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"/>');
       out.push('<text x="' + p[1] + '" y="' + (y(p[2]) + p[3]) + '" text-anchor="middle" fill="var(--ink)" font-weight="600">' + p[0] + ' ' + fmt(p[2]) + '</text>');
     });
 
     if (d.P != null) {
-      var yp = y(d.P);
+      // 하락 시나리오에서는 오른쪽 점선과 겹치지 않게 현재가 표시를 왼쪽에 둠
+      var xb = falling ? x0 + 45 : xD;
       out.push('<line x1="' + x0 + '" x2="' + x1 + '" y1="' + yp + '" y2="' + yp + '" stroke="var(--now)" stroke-width="2"/>');
-      out.push('<rect x="' + (xD - 40) + '" y="' + (yp - 9) + '" width="80" height="18" rx="9" fill="var(--now)"/>');
-      out.push('<text x="' + xD + '" y="' + (yp + 4) + '" text-anchor="middle" fill="var(--surface)" font-weight="600">' + fmt(d.P) + '</text>');
+      if (falling) out.push('<circle cx="' + xP + '" cy="' + yp + '" r="4.5" fill="var(--now)"/>');
+      out.push('<rect x="' + (xb - 40) + '" y="' + (yp - 9) + '" width="80" height="18" rx="9" fill="var(--now)"/>');
+      out.push('<text x="' + xb + '" y="' + (yp + 4) + '" text-anchor="middle" fill="var(--surface)" font-weight="600">' + fmt(d.P) + '</text>');
     }
     out.push('</svg>');
     return out.join('');
