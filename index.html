@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>코스피 피보나치 목표가</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: 입력 패널 + 요약을 위에, 목표/지지 표 두 개를 나란히, 그 아래 가격 사다리 차트. 한국 시장 관례대로 상승=빨강, 하락=파랑 */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #141a22;
+  --muted: #5d6877;
+  --line: #dde2ea;
+  --up: #cf2a3f;
+  --up-soft: #fbe9eb;
+  --down: #1d5bc9;
+  --down-soft: #e7eefb;
+  --now: #b26a00;
+  --warn-bg: #fff4dc;
+  --warn-ink: #7a4b00;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #161b22; --ink: #e6eaf0; --muted: #94a0b0; --line: #29313c;
+    --up: #ff5c70; --up-soft: #3a1a20; --down: #5c95ff; --down-soft: #172540;
+    --now: #f0a53a; --warn-bg: #3a2c10; --warn-ink: #f3cf8a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #161b22; --ink: #e6eaf0; --muted: #94a0b0; --line: #29313c;
+  --up: #ff5c70; --up-soft: #3a1a20; --down: #5c95ff; --down-soft: #172540;
+  --now: #f0a53a; --warn-bg: #3a2c10; --warn-ink: #f3cf8a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+}
+.wrap {
+  max-width: 1080px; margin: 0 auto;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px;
+}
+header h1 { font-size: 1.6rem; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.panel h2 { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 12px; }
+
+/* 입력 */
+.fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.field label { display: flex; align-items: baseline; gap: 6px; font-size: 0.85rem; font-weight: 500; margin-bottom: 4px; }
+.field label .tag { font-family: var(--font-num); font-size: 0.75rem; color: var(--muted); }
+.field input {
+  width: 100%; font: 600 1.35rem/1.2 var(--font-num); font-variant-numeric: tabular-nums;
+  color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+}
+.field input:focus { outline: 2px solid var(--down); outline-offset: 1px; border-color: transparent; }
+.field input[aria-invalid="true"] { border-color: var(--up); }
+.field .hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+button {
+  font: 500 0.85rem var(--font-body); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); font-weight: 700; }
+button.primary:hover { opacity: 0.88; }
+.memo {
+  flex: 1 1 200px; min-width: 0; font: 400 0.85rem var(--font-body); color: var(--ink);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+}
+.memo:focus { outline: 2px solid var(--down); outline-offset: 1px; border-color: transparent; }
+
+/* 저장 기록 */
+.hist { list-style: none; margin: 0; padding: 0; display: grid; }
+.hist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.hist li:last-child { border-bottom: 0; }
+.hist li.empty { display: block; color: var(--muted); font-size: 0.85rem; }
+.hist li.current { background: var(--down-soft); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 6px; }
+.hist .meta { font-size: 0.75rem; color: var(--muted); }
+.hist .meta b { color: var(--ink); font-weight: 600; font-size: 0.85rem; margin-right: 6px; }
+.hist .vals { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 0.85rem; margin-top: 2px; overflow-wrap: anywhere; }
+.hist .vals .t { color: var(--up); }
+.hist .vals .s { color: var(--down); }
+.hist .acts { display: flex; gap: 6px; }
+.hist .acts button { padding: 5px 10px; font-size: 0.8rem; }
+button:focus-visible { outline: 2px solid var(--down); outline-offset: 2px; }
+
+/* 요약 */
+.stats { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.stat { display: grid; gap: 0; }
+.stat .k { font-size: 0.75rem; color: var(--muted); }
+.stat .v { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 600; font-size: 1.05rem; }
+.msg { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.85rem; }
+.msg.err { background: var(--up-soft); color: var(--up); }
+
+/* 현재가 위치 */
+.where { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+.where .side { display: grid; gap: 2px; min-width: 0; }
+.where .side.r { text-align: right; }
+.where .lbl { font-size: 0.78rem; color: var(--muted); }
+.where .px { font-family: var(--font-num); font-weight: 600; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.where .pct { font-family: var(--font-num); font-size: 0.85rem; }
+.where .mid { text-align: center; padding: 8px 14px; border: 1px solid var(--now); border-radius: 999px; color: var(--now); font-family: var(--font-num); font-weight: 600; white-space: nowrap; }
+.where .side .name { font-size: 0.85rem; font-weight: 500; }
+
+/* 표 */
+.tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.table-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.table-head h2 { margin: 0; }
+.table-head .formula { font-family: var(--font-num); font-size: 0.75rem; color: var(--muted); }
+.tbl-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 9px 6px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 0.72rem; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; }
+td.ratio { font-family: var(--font-num); font-size: 0.85rem; color: var(--muted); width: 3.8em; }
+td.name { font-size: 0.88rem; }
+td.name small { display: block; color: var(--muted); font-size: 0.75rem; }
+td.price, th.price { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.price { font-weight: 600; font-size: 1rem; }
+td.dist, th.dist { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 0.82rem; white-space: nowrap; width: 5.2em; }
+tr:last-child td { border-bottom: 0; }
+tr.group td { background: var(--down-soft); color: var(--down); font-size: 0.8rem; font-weight: 700; padding: 7px 8px; }
+tr.group td span { float: right; font: 400 0.72rem var(--font-num); color: var(--muted); }
+.ext tr.key td.price { color: var(--up); }
+.ext tr.key td.name { font-weight: 700; }
+.ret tr.key td.price { color: var(--down); }
+.ret tr.key td.name { font-weight: 700; }
+tr.near td { background: var(--warn-bg); }
+.pos { color: var(--up); }
+.neg { color: var(--down); }
+
+/* 차트 */
+.chart-scroll { overflow-x: auto; }
+.chart-scroll svg { display: block; width: 100%; min-width: 600px; height: auto; }
+svg text { font-family: var(--font-num); font-size: 11px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.78rem; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+
+footer { color: var(--muted); font-size: 0.78rem; }
+
+@media (max-width: 820px) {
+  .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tables { grid-template-columns: 1fr; }
+}
+@media (max-width: 420px) {
+  .where { grid-template-columns: 1fr 1fr; }
+  .where .mid { grid-column: 1 / -1; grid-row: 1; justify-self: center; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>코스피 피보나치 목표가</h1>
+    <p>저점(A) → 고점(B) → 조정 저점(C) 세 점으로 상승 목표와 조정 지지선을 계산합니다. 입력하면 바로 갱신됩니다.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="in-h">
+    <h2 id="in-h">파동 입력</h2>
+    <div class="fields">
+      <div class="field">
+        <label for="inA">저점 <span class="tag">A</span></label>
+        <input id="inA" inputmode="decimal" autocomplete="off">
+        <div class="hint">상승 시작점</div>
+      </div>
+      <div class="field">
+        <label for="inB">고점 <span class="tag">B</span></label>
+        <input id="inB" inputmode="decimal" autocomplete="off">
+        <div class="hint">상승파 꼭대기</div>
+      </div>
+      <div class="field">
+        <label for="inC">조정 저점 <span class="tag">C</span></label>
+        <input id="inC" inputmode="decimal" autocomplete="off">
+        <div class="hint">고점 이후 눌린 바닥</div>
+      </div>
+      <div class="field">
+        <label for="inP">현재가 <span class="tag">선택</span></label>
+        <input id="inP" inputmode="decimal" autocomplete="off" placeholder="비워도 됨">
+        <div class="hint">입력하면 거리(%) 표시</div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <input id="inMemo" class="memo" maxlength="40" autocomplete="off" placeholder="메모 (선택) 예: 10월 조정 확인" aria-label="저장 메모">
+      <button type="button" id="btnSave" class="primary">저장</button>
+      <button type="button" id="btnSample">예시 값 불러오기</button>
+      <button type="button" id="btnCopy">결과 복사</button>
+      <button type="button" id="btnClear">지우기</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="msgs"></div>
+  </section>
+
+  <section class="panel" id="wherePanel" aria-labelledby="where-h" hidden>
+    <h2 id="where-h">현재가 위치</h2>
+    <div class="where" id="where"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="hist-h">
+    <div class="table-head">
+      <h2 id="hist-h">저장한 기록</h2>
+      <span class="formula" id="histCount"></span>
+    </div>
+    <ul class="hist" id="hist"></ul>
+  </section>
+
+  <div class="tables">
+    <section class="panel ext" aria-labelledby="ext-h">
+      <div class="table-head">
+        <h2 id="ext-h">상승 목표 · 확장</h2>
+        <span class="formula">C + (B−A) × 비율</span>
+      </div>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>비율</th><th>구간</th><th class="price">지수</th><th class="dist">현재가 대비</th></tr></thead>
+        <tbody id="extBody"></tbody>
+      </table></div>
+    </section>
+    <section class="panel ret" aria-labelledby="ret-h">
+      <div class="table-head">
+        <h2 id="ret-h">하락 목표 · 지지</h2>
+        <span class="formula">위에서 아래로 깊어지는 순서</span>
+      </div>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>비율</th><th>구간</th><th class="price">지수</th><th class="dist">현재가 대비</th></tr></thead>
+        <tbody id="retBody"></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="chart-h">
+    <h2 id="chart-h">가격 사다리</h2>
+    <div class="chart-scroll" id="chart"></div>
+    <div class="legend">
+      <span><i style="background:var(--ink)"></i>A → B → C 실제 파동</span>
+      <span><i style="background:var(--up)"></i>확장 목표 (오른쪽)</span>
+      <span><i style="background:var(--down)"></i>되돌림 지지 (왼쪽)</span>
+      <span><i style="background:var(--now)"></i>현재가</span>
+    </div>
+  </section>
+
+  <footer>피보나치 레벨은 참고용 기술적 지표이며 투자 권유가 아닙니다. 입력값은 이 브라우저에만 저장됩니다.</footer>
+</div>
+
+<script>
+(function () {
+  var EXT = [
+    { r: 0.272, name: '단기 확장', note: '첫 반등 저항' },
+    { r: 0.618, name: '단기 확장', note: '황금비 반등' },
+    { r: 1.0,   name: '회복',       note: 'C에서 A→B 만큼 상승 (AB = CD)', key: true },
+    { r: 1.272, name: '1차 목표',   note: '', key: true },
+    { r: 1.618, name: '2차 목표',   note: '황금비 확장', key: true },
+    { r: 2.0,   name: '고강도 확장', note: '' },
+    { r: 2.618, name: '과열 시 최대', note: '' }
+  ];
+  // 하락 목표: 얕은 것부터 깊은 것까지 세 묶음
+  var DOWN = [
+    { id: 'ret', title: '고점(B) 기준 되돌림', formula: 'B − (B−A) × 비율', levels: [
+      { r: 0.236, name: '약한 조정', note: '건강한 눌림' },
+      { r: 0.382, name: '일반적 되돌림', note: '', key: true },
+      { r: 0.5,   name: '중간 조정', note: '심리적 지지', key: true },
+      { r: 0.618, name: '깊은 조정', note: '황금비 지지', key: true },
+      { r: 0.786, name: '추세 훼손 경계', note: '이탈 시 상승파 의심' },
+      { r: 0.886, name: '최종 방어선', note: '저점 직전' },
+      { r: 1.0,   name: '전체 되돌림', note: '저점(A) 재시험', key: true }
+    ] },
+    { id: 'extDown', title: '저점(A) 이탈 시 하락 확장', formula: 'B − (B−A) × 비율', levels: [
+      { r: 1.272, name: 'A 이탈 1차', note: '상승파 무효화' },
+      { r: 1.618, name: 'A 이탈 2차', note: '황금비 하락 확장', key: true }
+    ] },
+    { id: 'cDown', title: '조정 저점(C) 이탈 시 하락', formula: 'C − (B−C) × 비율', levels: [
+      { r: 0.618, name: 'C 이탈 1차', note: 'B→C 하락의 0.618배 추가' },
+      { r: 1.0,   name: '등폭 하락', note: 'B→C 만큼 한 번 더 (1:1)', key: true },
+      { r: 1.272, name: 'C 이탈 확장', note: '' },
+      { r: 1.618, name: '패닉 셀 최대', note: '황금비 하락 확장', key: true }
+    ] }
+  ];
+  var SAMPLE = { A: '5262', B: '9385', C: '7171', P: '' };
+  var STORE = 'kospi-fibo-v1';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var inputs = { A: $('inA'), B: $('inB'), C: $('inC'), P: $('inP') };
+  var decimals = 0;
+
+  function parse(s) {
+    s = String(s || '').replace(/[,\s]/g, '');
+    if (s === '') return null;
+    var n = Number(s);
+    return isFinite(n) ? n : NaN;
+  }
+  function decOf(s) {
+    s = String(s || '').replace(/[,\s]/g, '');
+    var i = s.indexOf('.');
+    return i < 0 ? 0 : Math.min(2, s.length - i - 1);
+  }
+  function fmt(n) {
+    return n.toLocaleString('ko-KR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  }
+  function pct(level, p) {
+    var v = (level - p) / p * 100;
+    return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%';
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function save() {
+    try { localStorage.setItem(STORE, JSON.stringify({ A: inputs.A.value, B: inputs.B.value, C: inputs.C.value, P: inputs.P.value })); } catch (e) {}
+  }
+  function load() {
+    try { var v = JSON.parse(localStorage.getItem(STORE)); if (v && typeof v === 'object') return v; } catch (e) {}
+    return SAMPLE;
+  }
+  function fill(v) { ['A', 'B', 'C', 'P'].forEach(function (k) { inputs[k].value = v[k] || ''; }); }
+
+  var last = null;
+
+  function compute() {
+    var A = parse(inputs.A.value), B = parse(inputs.B.value), C = parse(inputs.C.value), P = parse(inputs.P.value);
+    decimals = Math.max(decOf(inputs.A.value), decOf(inputs.B.value), decOf(inputs.C.value));
+    var errs = [], warns = [];
+    ['A', 'B', 'C', 'P'].forEach(function (k) {
+      var v = { A: A, B: B, C: C, P: P }[k];
+      inputs[k].setAttribute('aria-invalid', (v !== null && (isNaN(v) || v <= 0)) ? 'true' : 'false');
+    });
+    if (A === null || B === null || C === null) errs.push('저점(A), 고점(B), 조정 저점(C)을 모두 입력하세요.');
+    else if ([A, B, C].some(function (v) { return isNaN(v) || v <= 0; })) errs.push('지수는 0보다 큰 숫자로 입력하세요.');
+    else {
+      if (B <= A) { errs.push('고점(B)은 저점(A)보다 높아야 합니다. 두 값이 바뀌지 않았는지 확인하세요.'); inputs.B.setAttribute('aria-invalid', 'true'); }
+      if (C >= B) { errs.push('조정 저점(C)은 고점(B)보다 낮아야 합니다.'); inputs.C.setAttribute('aria-invalid', 'true'); }
+    }
+    if (P !== null && (isNaN(P) || P <= 0)) { P = null; warns.push('현재가는 0보다 큰 숫자로 입력하세요. 거리 계산을 건너뜁니다.'); }
+
+    if (errs.length) { last = null; render(null, errs, warns); return; }
+
+    var R = B - A;
+    var cRatio = (B - C) / R;
+    if (C < A) warns.push('조정 저점(C)이 첫 저점(A)보다 낮습니다. 상승분을 ' + (cRatio * 100).toFixed(1) + '% 되돌린 상태라, 같은 파동의 조정보다는 새 파동의 시작으로 볼 수도 있습니다.');
+    else if (cRatio < 0.2) warns.push('조정 폭이 ' + (cRatio * 100).toFixed(1) + '%로 매우 얕습니다. 아직 조정이 끝나지 않았을 수 있습니다.');
+
+    var ext = EXT.map(function (l) { return Object.assign({}, l, { price: C + R * l.r }); });
+    var groups = DOWN.map(function (g) {
+      return { title: g.title, formula: g.formula, levels: g.levels.map(function (l) {
+        var price = g.id === 'cDown' ? C - (B - C) * l.r : B - R * l.r;
+        return Object.assign({}, l, { price: price, group: g.id });
+      }).filter(function (l) { return l.price > 0; }) };
+    });
+    var ret = [].concat.apply([], groups.map(function (g) { return g.levels; }));
+    last = { A: A, B: B, C: C, P: P, R: R, cRatio: cRatio, ext: ext, ret: ret, groups: groups };
+    render(last, errs, warns);
+  }
+
+  function rowsHtml(list, P, nearSet) {
+    return list.map(function (l) {
+      var cls = [l.key ? 'key' : '', nearSet.has(l) ? 'near' : ''].join(' ').trim();
+      var dist = P == null ? '–' : '<span class="' + (l.price >= P ? 'pos' : 'neg') + '">' + pct(l.price, P) + '</span>';
+      return '<tr class="' + cls + '"><td class="ratio">' + l.r.toFixed(3).replace(/0+$/, '').replace(/\.$/, '.0') + '</td>' +
+        '<td class="name">' + esc(l.name) + (l.note ? '<small>' + esc(l.note) + '</small>' : '') + '</td>' +
+        '<td class="price">' + fmt(l.price) + '</td><td class="dist">' + dist + '</td></tr>';
+    }).join('');
+  }
+
+  function render(d, errs, warns) {
+    var msgs = errs.map(function (m) { return '<div class="msg err">' + esc(m) + '</div>'; })
+      .concat(warns.map(function (m) { return '<div class="msg">' + esc(m) + '</div>'; }));
+    $('msgs').innerHTML = msgs.join('');
+    if (!d) {
+      $('stats').innerHTML = '';
+      $('extBody').innerHTML = $('retBody').innerHTML = '<tr><td colspan="4" style="color:var(--muted)">세 값을 입력하면 계산됩니다.</td></tr>';
+      $('chart').innerHTML = '';
+      $('wherePanel').hidden = true;
+      return;
+    }
+    $('stats').innerHTML = [
+      ['상승폭 (B−A)', fmt(d.R) + ' pt'],
+      ['상승률', '+' + (d.R / d.A * 100).toFixed(1) + '%'],
+      ['C의 되돌림 비율', (d.cRatio * 100).toFixed(1) + '%'],
+      ['조정 하락률 (B→C)', '−' + ((d.B - d.C) / d.B * 100).toFixed(1) + '%']
+    ].map(function (s) { return '<div class="stat"><span class="k">' + s[0] + '</span><span class="v">' + s[1] + '</span></div>'; }).join('');
+
+    var near = new Set();
+    var all = d.ext.concat(d.ret);
+    if (d.P != null) {
+      var above = all.filter(function (l) { return l.price > d.P; }).sort(function (a, b) { return a.price - b.price; })[0];
+      var below = all.filter(function (l) { return l.price <= d.P; }).sort(function (a, b) { return b.price - a.price; })[0];
+      if (above) near.add(above);
+      if (below) near.add(below);
+      var side = function (l, dir) {
+        if (!l) return '<div class="side ' + dir + '"><span class="lbl">' + (dir === 'r' ? '다음 저항' : '다음 지지') + '</span><span class="name">계산 범위 밖</span></div>';
+        var kind = d.ext.indexOf(l) >= 0 ? '확장 ' : l.group === 'cDown' ? 'C 이탈 ' : '되돌림 ';
+        return '<div class="side ' + dir + '"><span class="lbl">' + (dir === 'r' ? '다음 저항' : '다음 지지') + '</span>' +
+          '<span class="px">' + fmt(l.price) + '</span>' +
+          '<span class="name">' + kind + l.r + ' · ' + esc(l.name) + '</span>' +
+          '<span class="pct ' + (dir === 'r' ? 'pos' : 'neg') + '">' + pct(l.price, d.P) + '</span></div>';
+      };
+      $('where').innerHTML = side(below, 'l') + '<div class="mid">' + fmt(d.P) + '</div>' + side(above, 'r');
+      $('wherePanel').hidden = false;
+    } else {
+      $('wherePanel').hidden = true;
+    }
+
+    $('extBody').innerHTML = rowsHtml(d.ext, d.P, near);
+    $('retBody').innerHTML = d.groups.map(function (g) {
+      return '<tr class="group"><td colspan="4">' + esc(g.title) + '<span>' + esc(g.formula) + '</span></td></tr>' + rowsHtml(g.levels, d.P, near);
+    }).join('');
+    $('chart').innerHTML = chartSvg(d);
+  }
+
+  // 겹치는 라벨을 최소 간격만큼 밀어내고, 범위를 벗어나면 다시 끌어올림
+  function spread(items, gap, top, bottom) {
+    items.sort(function (a, b) { return a.y - b.y; });
+    items.forEach(function (it, i) { it.ly = i === 0 ? Math.max(top, it.y) : Math.max(it.y, items[i - 1].ly + gap); });
+    for (var i = items.length - 1; i >= 0; i--) {
+      var limit = i === items.length - 1 ? bottom : items[i + 1].ly - gap;
+      if (items[i].ly > limit) items[i].ly = limit;
+    }
+    return items;
+  }
+
+  function chartSvg(d) {
+    var W = 640, H = 780, padT = 24, padB = 24;
+    var prices = [d.A, d.B, d.C].concat(d.ext.map(function (l) { return l.price; }), d.ret.map(function (l) { return l.price; }));
+    if (d.P != null) prices.push(d.P);
+    var lo = Math.min.apply(null, prices), hi = Math.max.apply(null, prices);
+    var span = hi - lo || 1;
+    var y = function (p) { return padT + (hi - p) / span * (H - padT - padB); };
+    var x0 = 150, x1 = 470;
+    var xA = 180, xB = 265, xC = 340, xD = 445;
+    var out = [];
+    out.push('<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="A, B, C 파동과 피보나치 레벨 가격 사다리">');
+
+    // 레벨 선
+    d.ret.forEach(function (l) {
+      out.push('<line x1="' + x0 + '" x2="' + x1 + '" y1="' + y(l.price) + '" y2="' + y(l.price) + '" stroke="var(--down)" stroke-width="' + (l.key ? 1.2 : 0.8) + '" stroke-dasharray="' + (l.key ? '' : '3 3') + '" opacity="0.75"/>');
+    });
+    d.ext.forEach(function (l) {
+      out.push('<line x1="' + x0 + '" x2="' + x1 + '" y1="' + y(l.price) + '" y2="' + y(l.price) + '" stroke="var(--up)" stroke-width="' + (l.key ? 1.2 : 0.8) + '" stroke-dasharray="' + (l.key ? '' : '3 3') + '" opacity="0.75"/>');
+    });
+
+    // 라벨 (왼쪽: 되돌림, 오른쪽: 확장)
+    var left = spread(d.ret.map(function (l) { return { l: l, y: y(l.price) }; }), 25, padT, H - padB);
+    left.forEach(function (it) {
+      out.push('<path d="M' + (x0 - 4) + ' ' + it.ly + ' L' + x0 + ' ' + it.y + '" stroke="var(--down)" fill="none" opacity="0.5"/>');
+      out.push('<text x="' + (x0 - 8) + '" y="' + (it.ly - 2) + '" text-anchor="end" fill="var(--down)" font-weight="600">' + fmt(it.l.price) + '</text>');
+      out.push('<text x="' + (x0 - 8) + '" y="' + (it.ly + 10) + '" text-anchor="end" fill="var(--muted)">' + it.l.r + ' ' + esc(it.l.name) + '</text>');
+    });
+    var right = spread(d.ext.map(function (l) { return { l: l, y: y(l.price) }; }), 26, padT, H - padB);
+    right.forEach(function (it) {
+      out.push('<path d="M' + x1 + ' ' + it.y + ' L' + (x1 + 4) + ' ' + it.ly + '" stroke="var(--up)" fill="none" opacity="0.5"/>');
+      out.push('<text x="' + (x1 + 8) + '" y="' + (it.ly - 2) + '" fill="var(--up)" font-weight="600">' + fmt(it.l.price) + '</text>');
+      out.push('<text x="' + (x1 + 8) + '" y="' + (it.ly + 10) + '" fill="var(--muted)">' + it.l.r + ' ' + esc(it.l.name) + '</text>');
+    });
+
+    // 파동 경로와 예상 경로 (1.618 목표까지 점선)
+    var t2 = d.ext[4].price;
+    out.push('<path d="M' + xA + ' ' + y(d.A) + ' L' + xB + ' ' + y(d.B) + ' L' + xC + ' ' + y(d.C) + '" stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linejoin="round"/>');
+    out.push('<path d="M' + xC + ' ' + y(d.C) + ' L' + xD + ' ' + y(t2) + '" stroke="var(--up)" stroke-width="1.6" fill="none" stroke-dasharray="6 5"/>');
+    [['A', xA, d.A, 16], ['B', xB, d.B, -10], ['C', xC, d.C, 16]].forEach(function (p) {
+      out.push('<circle cx="' + p[1] + '" cy="' + y(p[2]) + '" r="4.5" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"/>');
+      out.push('<text x="' + p[1] + '" y="' + (y(p[2]) + p[3]) + '" text-anchor="middle" fill="var(--ink)" font-weight="600">' + p[0] + ' ' + fmt(p[2]) + '</text>');
+    });
+
+    if (d.P != null) {
+      var yp = y(d.P);
+      out.push('<line x1="' + x0 + '" x2="' + x1 + '" y1="' + yp + '" y2="' + yp + '" stroke="var(--now)" stroke-width="2"/>');
+      out.push('<rect x="' + (xD - 40) + '" y="' + (yp - 9) + '" width="80" height="18" rx="9" fill="var(--now)"/>');
+      out.push('<text x="' + xD + '" y="' + (yp + 4) + '" text-anchor="middle" fill="var(--surface)" font-weight="600">' + fmt(d.P) + '</text>');
+    }
+    out.push('</svg>');
+    return out.join('');
+  }
+
+  function summaryText(d) {
+    var lines = ['[코스피 피보나치] A ' + fmt(d.A) + ' / B ' + fmt(d.B) + ' / C ' + fmt(d.C) + (d.P != null ? ' / 현재 ' + fmt(d.P) : ''), '', '상승 목표 (확장)'];
+    d.ext.forEach(function (l) { lines.push('  ' + l.r + ' ' + l.name + ': ' + fmt(l.price) + (d.P != null ? ' (' + pct(l.price, d.P) + ')' : '')); });
+    d.groups.forEach(function (g) {
+      lines.push('', '하락 · ' + g.title + ' [' + g.formula + ']');
+      g.levels.forEach(function (l) { lines.push('  ' + l.r + ' ' + l.name + ': ' + fmt(l.price) + (d.P != null ? ' (' + pct(l.price, d.P) + ')' : '')); });
+    });
+    return lines.join('\n');
+  }
+
+  Object.keys(inputs).forEach(function (k) {
+    inputs[k].addEventListener('input', function () { compute(); save(); });
+  });
+  $('btnSample').addEventListener('click', function () { fill(SAMPLE); compute(); save(); });
+  $('btnClear').addEventListener('click', function () { fill({}); compute(); save(); inputs.A.focus(); });
+  $('btnCopy').addEventListener('click', function () {
+    var btn = this;
+    if (!last) { btn.textContent = '계산할 값이 없습니다'; setTimeout(function () { btn.textContent = '결과 복사'; }, 1500); return; }
+    var text = summaryText(last);
+    var done = function (ok) { btn.textContent = ok ? '복사했습니다' : '복사 실패: 표를 직접 선택하세요'; setTimeout(function () { btn.textContent = '결과 복사'; }, 1800); };
+    try { navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); }); } catch (e) { done(false); }
+  });
+
+  // 저장 기록: 이 브라우저의 localStorage에 최근 50개까지 보관
+  var HIST = 'kospi-fibo-history-v1', HIST_MAX = 50;
+  var currentId = null;
+
+  function readHist() {
+    try { var v = JSON.parse(localStorage.getItem(HIST)); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+  }
+  function writeHist(list) {
+    try { localStorage.setItem(HIST, JSON.stringify(list)); return true; } catch (e) { return false; }
+  }
+  function n2(v) { return Number(v).toLocaleString('ko-KR', { maximumFractionDigits: 2 }); }
+  function stamp(t) {
+    var d = new Date(t), p = function (x) { return String(x).padStart(2, '0'); };
+    return d.getFullYear() + '.' + p(d.getMonth() + 1) + '.' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function renderHist() {
+    var list = readHist();
+    $('histCount').textContent = list.length ? list.length + '개 · 이 브라우저에 저장' : '';
+    if (!list.length) {
+      $('hist').innerHTML = '<li class="empty">아직 저장한 기록이 없습니다. 값을 입력하고 <b>저장</b>을 누르면 여기에 남고, 다음에 열었을 때 불러올 수 있습니다.</li>';
+      return;
+    }
+    $('hist').innerHTML = list.map(function (h) {
+      var A = parse(h.A), B = parse(h.B), C = parse(h.C), R = B - A;
+      return '<li data-id="' + esc(h.id) + '"' + (h.id === currentId ? ' class="current"' : '') + '>' +
+        '<div><div class="meta"><b>' + esc(h.memo || '메모 없음') + '</b>' + stamp(h.t) + '</div>' +
+        '<div class="vals">A ' + n2(A) + ' · B ' + n2(B) + ' · C ' + n2(C) + (h.P ? ' · 현재 ' + n2(parse(h.P)) : '') + '</div>' +
+        '<div class="vals"><span class="t">1차 ' + n2(Math.round(C + R * 1.272)) + ' · 2차 ' + n2(Math.round(C + R * 1.618)) + '</span>' +
+        ' · <span class="s">0.618 지지 ' + n2(Math.round(B - R * 0.618)) + ' · C 1:1 ' + n2(Math.round(C - (B - C))) + '</span></div></div>' +
+        '<div class="acts"><button type="button" data-act="load">불러오기</button><button type="button" data-act="del">삭제</button></div></li>';
+    }).join('');
+  }
+
+  function flash(btn, text, ms) {
+    var orig = btn.dataset.label || (btn.dataset.label = btn.textContent);
+    btn.textContent = text;
+    clearTimeout(btn._t);
+    btn._t = setTimeout(function () { btn.textContent = orig; }, ms || 1600);
+  }
+
+  $('btnSave').addEventListener('click', function () {
+    if (!last) { flash(this, '입력값을 먼저 확인하세요'); return; }
+    var entry = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: Date.now(),
+      memo: $('inMemo').value.trim(),
+      A: inputs.A.value.trim(), B: inputs.B.value.trim(), C: inputs.C.value.trim(), P: inputs.P.value.trim()
+    };
+    var list = readHist();
+    var top = list[0];
+    // 직전 기록과 값이 같으면 새로 쌓지 않고 시간·메모만 갱신
+    if (top && top.A === entry.A && top.B === entry.B && top.C === entry.C && top.P === entry.P) {
+      entry.id = top.id; if (!entry.memo) entry.memo = top.memo; list.shift();
+    }
+    list.unshift(entry);
+    if (writeHist(list.slice(0, HIST_MAX))) {
+      currentId = entry.id; $('inMemo').value = ''; renderHist(); flash(this, '저장했습니다');
+    } else {
+      flash(this, '저장 실패: 브라우저 저장소가 막혀 있습니다', 2600);
+    }
+  });
+
+  $('hist').addEventListener('click', function (e) {
+    var btn = e.target.closest('button'); if (!btn) return;
+    var id = btn.closest('li').dataset.id;
+    var list = readHist();
+    var h = list.filter(function (x) { return x.id === id; })[0]; if (!h) return;
+    if (btn.dataset.act === 'load') {
+      fill(h); currentId = id; compute(); save(); renderHist();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (btn.dataset.act === 'del') {
+      // confirm()을 쓸 수 없어서 두 번 눌러 삭제
+      if (btn.dataset.armed) {
+        writeHist(list.filter(function (x) { return x.id !== id; }));
+        if (currentId === id) currentId = null;
+        renderHist();
+      } else {
+        btn.dataset.armed = '1'; btn.textContent = '한 번 더 누르면 삭제';
+        setTimeout(function () { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = '삭제'; } }, 3000);
+      }
+    }
+  });
+
+  fill(load());
+  compute();
+  renderHist();
+})();
+</script>
