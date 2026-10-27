@@ -237,7 +237,7 @@ footer { color: var(--muted); font-size: 0.78rem; }
     <h2 id="chart-h">가격 사다리</h2>
     <div class="chart-scroll" id="chart"></div>
     <div class="legend">
-      <span><i style="background:var(--ink)"></i>A → B → C 실제 파동</span>
+      <span><i style="background:var(--ink)"></i>실제 파동 (상승: A → B → C, 하락: B → A → C)</span>
       <span><i style="background:var(--up)"></i>확장 목표 (오른쪽)</span>
       <span><i style="background:var(--down)"></i>되돌림 지지 (왼쪽)</span>
       <span><i style="background:var(--now)"></i>현재가 (C 아래면 하락 점선 표시)</span>
@@ -456,11 +456,11 @@ footer { color: var(--muted); font-size: 0.78rem; }
       out.push('<text x="' + (x1 + 8) + '" y="' + (it.ly + 10) + '" fill="var(--muted)">' + it.l.r + ' ' + esc(it.l.name) + '</text>');
     });
 
-    // 실제 파동 A → B → C
-    out.push('<path d="M' + xA + ' ' + y(d.A) + ' L' + xB + ' ' + y(d.B) + ' L' + xC + ' ' + y(d.C) + '" stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linejoin="round"/>');
-
-    // 현재가가 C 아래면 하락 시나리오: C → 현재가 → 아래 하락 목표들로 점선
+    // 현재가가 C 아래면 하락 시나리오: B를 왼쪽에 두고 B → A → C → 현재가, 이어서 하락 목표들로 점선
     var falling = d.P != null && d.P < d.C;
+    if (falling) { var tmp = xA; xA = xB; xB = tmp; }
+    var first = falling ? [xB, d.B] : [xA, d.A], second = falling ? [xA, d.A] : [xB, d.B];
+    out.push('<path d="M' + first[0] + ' ' + y(first[1]) + ' L' + second[0] + ' ' + y(second[1]) + ' L' + xC + ' ' + y(d.C) + '" stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linejoin="round"/>');
     var xP = 380, yp = d.P != null ? y(d.P) : 0;
     if (falling) {
       var below = d.ret.filter(function (l) { return l.group === 'cDown' && l.price < d.P; });
